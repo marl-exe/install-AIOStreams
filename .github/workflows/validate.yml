@@ -1,0 +1,26 @@
+name: Validate installer
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install ShellCheck
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck
+      - name: Check shell syntax
+        run: bash -n Install-AIOStreams.sh tests/validate-template.sh
+      - name: Run ShellCheck
+        run: shellcheck Install-AIOStreams.sh tests/validate-template.sh
+      - name: Validate pinned template and Compose model
+        run: bash tests/validate-template.sh

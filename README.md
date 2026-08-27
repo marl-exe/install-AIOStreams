@@ -4,103 +4,52 @@
 >
 > This is a referral/affiliate link, which may provide me with a referral benefit if you sign up through it.
 
-Recovery/install script for rebuilding the minimal AIOStreams Docker deployment on a fresh Ubuntu VPS.
+Recovery/install script for a minimal AIOStreams Docker deployment on a fresh Ubuntu VPS. It configures AIOStreams behind Traefik and Authelia, generates secrets locally, validates the complete Compose model before publishing it, and safely resumes an interrupted deployment.
 
-The installer uses the reviewed `Viren070/docker-compose-template` revision pinned in the script, configures AIOStreams and Authelia, generates local secrets, and starts the deployment with Docker Compose.
+## Supported systems
 
-## What the script does
+- Ubuntu 26.04 (`resolute`)
+- Ubuntu 24.04 (`noble`)
+- Ubuntu 22.04 (`jammy`)
+- A public IPv4 address
+- Root or `sudo` access
 
-- Verifies it is running as root.
-- Validates the AIOStreams hostname, Authelia hostname, and Let's Encrypt email.
-- Refuses to overwrite an existing `/opt/docker` deployment.
-- Verifies TCP ports 80 and 443 are not already in use.
-- Verifies both hostnames resolve to IPv4 addresses.
-- Installs Docker Engine from Docker's official Ubuntu repository when needed.
-- Creates a dedicated `aio` service account, preferring UID/GID `1000` when available and otherwise selecting the next free matching UID/GID.
-- Reuses an existing `aio` account only when it is a non-root, `nologin` service account with a same-named primary group.
-- Clones a pinned revision of `Viren070/docker-compose-template`.
-- Configures the `required,aiostreams` Docker Compose profiles.
-- Writes the actual `aio` account UID/GID into Docker `PUID` and `PGID`.
-- Generates Authelia and AIOStreams secrets locally with OpenSSL.
-- Prompts locally for the AIOStreams dashboard password and Authelia password.
-- Hashes the Authelia password with Argon2 before writing the Authelia user database.
-- Sets sensitive environment/configuration files to mode `600`.
-- Removes the unused Traefik TCP/853 mapping and dashboard route from this deployment.
-- Runs `docker compose config --quiet`, pulls images, and starts the stack.
+The installer uses a reviewed, pinned revision of `Viren070/docker-compose-template`. Runtime images are also pinned to explicit versions so a later `latest` image cannot silently change an existing installation recipe.
 
-## Supported Ubuntu releases
+## Before running
 
-The current script accepts these Ubuntu codenames:
+1. Start with a fresh supported Ubuntu VPS.
+2. Create two distinct DNS A records: one for AIOStreams and one for Authelia.
+3. Point both records directly to the VPS public IPv4 address.
+4. If using Cloudflare, set both records to **DNS only** while certificates are issued.
+5. Ensure TCP ports 80 and 443 are free.
+6. Ensure `/opt/docker` does not contain an unrelated deployment.
 
-- `resolute`
-- `noble`
-- `jammy`
+The installer checks that both names resolve to the detected VPS public IPv4 address. If public-IP detection is unavailable, provide it explicitly with `--public-ip`. `--skip-dns-address-check` is available for unusual network arrangements, but incorrect DNS will normally prevent HTTPS certificate issuance.
 
-## Important requirements
+## Clone
 
-Before running the installer:
-
-1. Use a fresh Ubuntu VPS.
-2. Create an IPv4 DNS A record for the AIOStreams hostname pointing to the VPS public IP.
-3. Create an IPv4 DNS A record for the Authelia hostname pointing to the VPS public IP.
-4. Ensure TCP ports 80 and 443 are free.
-5. Ensure `/opt/docker` does not already exist.
-
-### UID/GID behavior
-
-The installer no longer requires UID/GID `1000` to be unused.
-
-It prefers `1000`, but checks both the passwd and group databases. If either UID `1000` or GID `1000` is already allocated, the installer searches upward for the next number that is free as both a UID and a GID, up to `60000`.
-
-For example, on a standard Ubuntu VPS where the initial `ubuntu` user already uses UID/GID `1000`, the installer will normally create:
-
-```text
-aio:x:1001:1001:...
-```
-
-and configure:
-
-```text
-PUID=1001
-PGID=1001
-```
-
-The exact value depends on the accounts already present on the host.
-
-If an `aio` user already exists from a previous partial installation, it is reused only if it is a non-root `/usr/sbin/nologin` account whose primary group is also named `aio`. Otherwise the installer stops rather than repurposing an unexpected account.
-
-You can inspect the selected account after installation with:
+This repository is public and does not require GitHub authentication:
 
 ```bash
-id aio
-getent passwd aio
-getent group aio
+git clone https://github.com/marl-exe/install-AIOStreams.git
+cd install-AIOStreams
 ```
 
-## Clone the repository
+## Dry run
 
-```bash
-git clone https://github.com/marl-exe/Install-AIOStreams.git
-cd Install-AIOStreams
-```
-
-Because this repository is private, GitHub authentication is required when cloning it.
-
-## Dry run first
-
-A dry run validates the host and supplied inputs without installing packages, creating accounts, cloning the deployment template, or creating credentials.
+The dry run does not install packages or create files, accounts, credentials, or containers:
 
 ```bash
 sudo bash Install-AIOStreams.sh \
   --domain aio.example.com \
   --auth-host auth.aio.example.com \
   --email you@example.com \
+  --public-ip 203.0.113.10 \
   --dry-run
 ```
 
-If the hostname/email options are omitted, the script prompts for them.
-
-The dry run reports that the real installation will create or reuse the `aio` service account while preferring UID/GID `1000`; it does not modify the account database.
+The host must already provide `ss`, `getent`, `awk`, `grep`, `sort`, and `curl` for dry-run validation. A normal installation installs its required packages itself.
 
 ## Install
 
@@ -111,15 +60,36 @@ sudo bash Install-AIOStreams.sh \
   --email you@example.com
 ```
 
-During the real installation the script prompts for:
+The script prompts locally for:
 
-- AIOStreams dashboard username (default: `marl`)
-- AIOStreams dashboard password
-- Authelia login password
+- An AIOStreams proxy/API username
+- An AIOStreams proxy/API password
+- An Authelia login password
 
-Passwords must contain at least 16 characters and may use letters, numbers, `.`, `_`, and `-`.
+Passwords must contain at least 16 letters, numbers, dots, underscores, or hyphens. They are entered silently.
 
-The passwords are entered silently and are not printed to terminal output.
+The Authelia credential protects the web configuration page. The separate `AIOSTREAMS_AUTH` credential protects AIOStreams proxy/API functionality; it is **not** a second dashboard login.
+
+## Interrupted installations
+
+The deployment is prepared in a temporary staging directory. Failures before validation remove that staging directory without publishing an incomplete `/opt/docker` tree.
+
+After validation, an installer marker is written before the deployment is started. If an image pull, container startup, or health check then fails, fix the reported cause and run the same installer command again. An installer-managed `/opt/docker` deployment is detected and resumed without regenerating credentials or secrets.
+
+The installer still refuses to alter an existing `/opt/docker` directory that does not contain its management marker.
+
+## Service account
+
+Containers that support a host UID/GID use a dedicated `aio` service account. The installer prefers UID/GID `1000`, then searches upward for the next number free as both a UID and GID. An existing `aio` account is reused only when it is a non-root `/usr/sbin/nologin` account with a same-named primary group.
+
+Inspect the result with:
+
+```bash
+id aio
+getent passwd aio
+getent group aio
+grep -E '^(PUID|PGID)=' /opt/docker/.env
+```
 
 ## After installation
 
@@ -129,28 +99,30 @@ Open:
 https://aio.example.com/stremio/configure
 ```
 
-Authenticate through Authelia, then use the separate AIOStreams dashboard credentials when requested.
+Authenticate through Authelia using the Authelia username and password created during installation.
 
-Useful checks:
+Useful diagnostics:
 
 ```bash
 cd /opt/docker
-docker compose ps
-docker compose logs --tail=100
-id aio
-grep -E '^(PUID|PGID)=' .env
+docker compose config
+docker compose ps -a
+docker compose logs --tail=200
 ```
 
-## Security notes
+## Security and reliability
 
-- No dashboard or Authelia passwords are hard-coded in this repository.
-- Authelia session, storage-encryption, and JWT secrets are generated on the VPS.
-- The AIOStreams `SECRET_KEY` is generated on the VPS.
-- Sensitive `.env` and Authelia user files are restricted to mode `600`.
-- The installer is fail-closed and refuses to replace an existing `/opt/docker` installation.
-- The installer refuses to repurpose an unexpected existing `aio` account or group.
-- Protect SSH, TCP/80, and TCP/443 with the VPS provider firewall as appropriate.
-- Keep backups outside the VPS.
+- The upstream template commit and required runtime image versions are pinned.
+- Authelia and AIOStreams secrets are generated locally with OpenSSL.
+- The Authelia password is stored only as an Argon2id hash.
+- Sensitive environment and user files use mode `600`.
+- Input values are validated before they are written to environment or YAML files.
+- The unused TCP/853 listener and Traefik dashboard route are not published.
+- Compose configuration is validated before `/opt/docker` is created.
+- Container health is checked during startup.
+- CI checks shell syntax, ShellCheck findings, the pinned upstream template, and the rendered Compose model.
+
+Protect SSH, TCP/80, and TCP/443 with the VPS provider firewall, and keep backups outside the VPS.
 
 ## Help
 
@@ -160,19 +132,11 @@ sudo bash Install-AIOStreams.sh --help
 
 ## Upstream template
 
-The deployment is based on:
-
-```text
-https://github.com/Viren070/docker-compose-template.git
-```
-
-The exact revision used is pinned in `Install-AIOStreams.sh` rather than automatically tracking the upstream default branch.
+https://github.com/Viren070/docker-compose-template
 
 ---
 
 ## Need a VPS?
-
-If you're looking for a VPS to run AIOStreams, you can use my DediRock referral link:
 
 https://billing.dedirock.com/aff.php?aff=898
 
