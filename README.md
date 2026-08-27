@@ -4,7 +4,7 @@
 >
 > This is a referral/affiliate link, which may provide me with a referral benefit if you sign up through it.
 
-Recovery/install script for a minimal AIOStreams Docker deployment on a fresh Ubuntu VPS. It configures AIOStreams behind Traefik and Authelia, generates secrets locally, validates the complete Compose model before publishing it, and safely resumes an interrupted deployment.
+Install script for a minimal AIOStreams Docker deployment on a fresh Ubuntu VPS. It configures AIOStreams behind Traefik and Authelia, generates secrets locally, validates the complete Compose model before publishing it, and safely resumes an interrupted deployment.
 
 ## Supported systems
 
