@@ -3,6 +3,7 @@
 > **Looking for a $10.88/year VPS?** Use my referral links: 
 > 
 > DediRock : https://billing.dedirock.com/aff.php?aff=898&pid=201
+> 
 > GreenCloudVPS : https://greencloudvps.com/billing/aff.php?aff=10195&gid=68
 > 
 > This is a referral/affiliate link, which may provide me with a referral benefit if you sign up through it.
@@ -141,6 +142,8 @@ https://github.com/Viren070/docker-compose-template
 
 ## Need a VPS?
 
-https://billing.dedirock.com/aff.php?aff=898
+> DediRock : https://billing.dedirock.com/aff.php?aff=898&pid=201
+> 
+> GreenCloudVPS : https://greencloudvps.com/billing/aff.php?aff=10195&gid=68
 
 This is a referral/affiliate link, which may provide me with a referral benefit if you sign up through it.
