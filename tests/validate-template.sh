@@ -42,11 +42,13 @@ if grep -RFq '/var/run/docker.sock' \
 if grep -Fq -- '--providers.docker' "$fixture/apps/traefik/compose.yaml"; then exit 1; fi
 if grep -Fq -- '--api.' "$fixture/apps/traefik/compose.yaml"; then exit 1; fi
 grep -Fxq '      - "--providers.file.directory=/etc/traefik/dynamic"' "$fixture/apps/traefik/compose.yaml"
+# shellcheck disable=SC2016 # Assert the literal Compose interpolation.
 grep -Fxq '      - "${DOCKER_APP_DIR}/traefik/dynamic:/etc/traefik/dynamic:ro"' "$fixture/apps/traefik/compose.yaml"
 grep -Fxq "      rule: 'Host(\`aio.example.com\`)'" "$fixture/apps/traefik/dynamic/routes.yml"
 grep -Fxq "      rule: 'Host(\`auth.aio.example.com\`)'" "$fixture/apps/traefik/dynamic/routes.yml"
 grep -Fxq "        address: 'http://authelia:9091/api/authz/forward-auth'" "$fixture/apps/traefik/dynamic/routes.yml"
 if grep -RFq 'traefik.enable=true' "$fixture/apps/aiostreams" "$fixture/apps/authelia" "$fixture/apps/traefik"; then exit 1; fi
+# shellcheck disable=SC2016 # Assert that the literal secret-bearing command was removed.
 if grep -Fq -- '--password "$authelia_password"' "$repository_root/Install-AIOStreams.sh"; then exit 1; fi
 
 docker compose --env-file "$fixture/.env" -f "$fixture/compose.yaml" config --quiet

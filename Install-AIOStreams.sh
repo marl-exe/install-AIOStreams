@@ -324,11 +324,13 @@ configure_template() {
   remove_exact_line "$traefik_compose" "      - '--api.insecure=false'"
   remove_exact_line "$traefik_compose" '      - "--providers.docker=true"'
   remove_exact_line "$traefik_compose" '      - "--providers.docker.exposedbydefault=false"'
+  # shellcheck disable=SC2016 # Match the literal Compose interpolation in the pinned template.
   remove_exact_line "$traefik_compose" '      - "--providers.docker.network=${DOCKER_NETWORK?}"'
   remove_exact_line "$traefik_compose" '      - "/var/run/docker.sock:/var/run/docker.sock"'
   insert_after_exact_line "$traefik_compose" \
     "      - '--global.checkNewVersion=false'" \
     $'      - "--providers.file.directory=/etc/traefik/dynamic"\n      - "--providers.file.watch=true"'
+  # shellcheck disable=SC2016 # Preserve literal Compose variables in the generated file.
   insert_after_exact_line "$traefik_compose" \
     '      - "${DOCKER_DATA_DIR}/traefik:/data"' \
     '      - "${DOCKER_APP_DIR}/traefik/dynamic:/etc/traefik/dynamic:ro"'
