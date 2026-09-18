@@ -1,7 +1,10 @@
 # Install-AIOStreams
 
-> **Looking for a $10.88/yr VPS?** Use my DediRock referral link: https://billing.dedirock.com/aff.php?aff=898
->
+> **Looking for a $10.88/yr VPS?** Use my referral links: 
+> 
+> DediRock $10 annually : https://billing.dedirock.com/aff.php?aff=898
+> GreenCloudVPS : https://greencloudvps.com/billing/aff.php?aff=10195&gid=68&utm_source=chatgpt.com
+> 
 > This is a referral/affiliate link, which may provide me with a referral benefit if you sign up through it.
 
 Install script for a minimal AIOStreams Docker deployment on a fresh Ubuntu VPS. It configures AIOStreams behind Traefik and Authelia, generates secrets locally, validates the complete Compose model before publishing it, and safely resumes an interrupted deployment.
