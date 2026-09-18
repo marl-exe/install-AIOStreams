@@ -1,9 +1,9 @@
 # Install-AIOStreams
 
-> **Looking for a $10.88/yr VPS?** Use my referral links: 
+> **Looking for a $10.88/year VPS?** Use my referral links: 
 > 
-> DediRock $10 annually : https://billing.dedirock.com/aff.php?aff=898
-> GreenCloudVPS : https://greencloudvps.com/billing/aff.php?aff=10195&gid=68&utm_source=chatgpt.com
+> DediRock : https://billing.dedirock.com/aff.php?aff=898&pid=201
+> GreenCloudVPS : https://greencloudvps.com/billing/aff.php?aff=10195&gid=68
 > 
 > This is a referral/affiliate link, which may provide me with a referral benefit if you sign up through it.
 
