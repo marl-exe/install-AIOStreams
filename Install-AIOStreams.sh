@@ -16,7 +16,7 @@ readonly AIOSTREAMS_IMAGE='ghcr.io/viren070/aiostreams:v2.33.2'
 readonly AUTHELIA_IMAGE='authelia/authelia:4.39.20'
 readonly REDIS_IMAGE='redis:8.10.1-alpine'
 readonly POSTGRES_IMAGE='postgres:17.11-alpine'
-readonly TRAEFIK_IMAGE='traefik:v3.7.12'
+readonly TRAEFIK_IMAGE='traefik:v3.7.13'
 
 DOMAIN=''
 AUTH_HOST=''
@@ -125,10 +125,59 @@ replace_exact_line() {
   mv -- "$temporary" "$file"
 }
 
+insert_after_exact_line() {
+  local file=$1 expected=$2 addition=$3 temporary
+  temporary=$(mktemp "${file}.tmp.XXXXXX")
+  if ! awk -v expected="$expected" -v addition="$addition" '
+    BEGIN { found = 0 }
+    $0 == expected { print; print addition; found++; next }
+    { print }
+    END { if (found != 1) exit 42 }
+  ' "$file" >"$temporary"; then
+    rm -f -- "$temporary"
+    die "the pinned template changed unexpectedly in $file"
+  fi
+  chmod --reference="$file" "$temporary"
+  mv -- "$temporary" "$file"
+}
+
+remove_exact_line() {
+  local file=$1 expected=$2 temporary
+  temporary=$(mktemp "${file}.tmp.XXXXXX")
+  if ! awk -v expected="$expected" '
+    BEGIN { found = 0 }
+    $0 == expected { found++; next }
+    { print }
+    END { if (found != 1) exit 42 }
+  ' "$file" >"$temporary"; then
+    rm -f -- "$temporary"
+    die "the pinned template changed unexpectedly in $file"
+  fi
+  chmod --reference="$file" "$temporary"
+  mv -- "$temporary" "$file"
+}
+
+remove_exact_block() {
+  local file=$1 first=$2 last=$3 temporary
+  temporary=$(mktemp "${file}.tmp.XXXXXX")
+  if ! awk -v first="$first" -v last="$last" '
+    BEGIN { removing = 0; starts = 0; ends = 0 }
+    $0 == first && !removing { removing = 1; starts++; next }
+    $0 == last && removing { removing = 0; ends++; print; next }
+    !removing { print }
+    END { if (removing || starts != 1 || ends != 1) exit 42 }
+  ' "$file" >"$temporary"; then
+    rm -f -- "$temporary"
+    die "the pinned template changed unexpectedly in $file"
+  fi
+  chmod --reference="$file" "$temporary"
+  mv -- "$temporary" "$file"
+}
+
 install_docker() {
   log 'Installing required host packages.'
   apt-get update
-  apt-get install -y ca-certificates curl git openssl iproute2
+  apt-get install -y ca-certificates curl git openssl iproute2 util-linux
   if command -v docker >/dev/null 2>&1; then
     docker compose version >/dev/null 2>&1 ||
       die 'Docker is already installed without the Compose plugin; install a compatible docker-compose-plugin first'
@@ -236,7 +285,7 @@ validate_new_install() {
 
 configure_template() {
   local directory=$1 username=$2 proxy_password=$3 authelia_hash=$4
-  local session_secret storage_secret jwt_secret
+  local session_secret storage_secret jwt_secret traefik_compose
   session_secret=$(openssl rand -hex 32)
   storage_secret=$(openssl rand -hex 32)
   jwt_secret=$(openssl rand -hex 32)
@@ -266,9 +315,69 @@ configure_template() {
     '    image: postgres:17-alpine' "    image: $POSTGRES_IMAGE"
   replace_exact_line "$directory/apps/traefik/compose.yaml" \
     '    image: traefik:v3' "    image: $TRAEFIK_IMAGE"
-  sed -i -e '/      - 853:853/d' -e '/^[[:space:]]*labels:$/d' \
-    -e '/traefik.enable=true/d' -e '/traefik.http.routers.api/d' \
-    -e '/traefik.http.services.api/d' "$directory/apps/traefik/compose.yaml"
+
+  traefik_compose="$directory/apps/traefik/compose.yaml"
+  remove_exact_line "$traefik_compose" '      - 853:853'
+  remove_exact_line "$traefik_compose" '      - "--entryPoints.dot.address=:853"'
+  remove_exact_line "$traefik_compose" "      - '--api=true'"
+  remove_exact_line "$traefik_compose" "      - '--api.dashboard=true'"
+  remove_exact_line "$traefik_compose" "      - '--api.insecure=false'"
+  remove_exact_line "$traefik_compose" '      - "--providers.docker=true"'
+  remove_exact_line "$traefik_compose" '      - "--providers.docker.exposedbydefault=false"'
+  remove_exact_line "$traefik_compose" '      - "--providers.docker.network=${DOCKER_NETWORK?}"'
+  remove_exact_line "$traefik_compose" '      - "/var/run/docker.sock:/var/run/docker.sock"'
+  insert_after_exact_line "$traefik_compose" \
+    "      - '--global.checkNewVersion=false'" \
+    $'      - "--providers.file.directory=/etc/traefik/dynamic"\n      - "--providers.file.watch=true"'
+  insert_after_exact_line "$traefik_compose" \
+    '      - "${DOCKER_DATA_DIR}/traefik:/data"' \
+    '      - "${DOCKER_APP_DIR}/traefik/dynamic:/etc/traefik/dynamic:ro"'
+  remove_exact_block "$traefik_compose" '    labels:' '    healthcheck:'
+  remove_exact_block "$directory/apps/authelia/compose.yaml" '    labels:' '    volumes:'
+  remove_exact_block "$directory/apps/aiostreams/compose.yaml" '    labels:' '    volumes:'
+
+  install -d -m 0750 "$directory/apps/traefik/dynamic"
+  cat >"$directory/apps/traefik/dynamic/routes.yml" <<EOF
+---
+http:
+  routers:
+    aiostreams:
+      rule: 'Host(\`$DOMAIN\`)'
+      entryPoints:
+        - websecure
+      middlewares:
+        - authelia
+      service: aiostreams
+      tls:
+        certResolver: letsencrypt
+    authelia:
+      rule: 'Host(\`$AUTH_HOST\`)'
+      entryPoints:
+        - websecure
+      service: authelia
+      tls:
+        certResolver: letsencrypt
+  middlewares:
+    authelia:
+      forwardAuth:
+        address: 'http://authelia:9091/api/authz/forward-auth'
+        trustForwardHeader: true
+        authResponseHeaders:
+          - Remote-User
+          - Remote-Groups
+          - Remote-Email
+          - Remote-Name
+  services:
+    aiostreams:
+      loadBalancer:
+        servers:
+          - url: 'http://aiostreams:3000'
+    authelia:
+      loadBalancer:
+        servers:
+          - url: 'http://authelia:9091'
+EOF
+  chmod 0644 "$directory/apps/traefik/dynamic/routes.yml"
   install -d -m 0750 "$directory/data/aiostreams"
   cat >"$directory/apps/authelia/config/users.yml" <<EOF
 ---
@@ -284,6 +393,20 @@ users:
 EOF
   chmod 600 "$directory/.env" "$directory/apps/aiostreams/.env" \
     "$directory/apps/authelia/config/users.yml"
+}
+
+generate_authelia_hash() {
+  local password=$1 digest
+  digest=$(
+    printf '%s\n' "$password" |
+      script --quiet --return --command \
+        "docker run --rm --interactive --tty $AUTHELIA_IMAGE authelia crypto hash generate argon2 --no-confirm" \
+        /dev/null |
+      tr -d '\r' |
+      awk '/^Digest: / { digest = $2 } END { if (digest) print digest }'
+  )
+  [[ $digest == "\$argon2id\$"* ]] || die 'Authelia password hash generation failed'
+  printf '%s\n' "$digest"
 }
 
 start_deployment() {
@@ -345,7 +468,7 @@ main() {
     require_commands ss getent awk grep sort curl
   else
     install_docker
-    require_commands ss getent awk grep sort curl openssl git docker
+    require_commands ss getent awk grep sort curl openssl git docker script tr
   fi
   validate_new_install
   if [[ $DRY_RUN == true ]]; then
@@ -364,9 +487,7 @@ main() {
   create_service_account
   log "Generating an Authelia password hash with $AUTHELIA_IMAGE."
   docker pull "$AUTHELIA_IMAGE" >/dev/null
-  authelia_hash=$(docker run --rm "$AUTHELIA_IMAGE" authelia crypto hash generate argon2 \
-    --password "$authelia_password" | awk '/^Digest: / {print $2; exit}')
-  [[ $authelia_hash == "\$argon2id\$"* ]] || die 'Authelia password hash generation failed'
+  authelia_hash=$(generate_authelia_hash "$authelia_password")
   STAGING_DIR=$(mktemp -d /opt/aio-install.XXXXXX)
   log "Cloning reviewed template revision $TEMPLATE_REF into a staging directory."
   git clone --no-checkout "$TEMPLATE_REPOSITORY" "$STAGING_DIR"

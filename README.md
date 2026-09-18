@@ -18,7 +18,7 @@ Install script for a minimal AIOStreams Docker deployment on a fresh Ubuntu VPS.
 - A public IPv4 address
 - Root or `sudo` access
 
-The installer uses a reviewed, pinned revision of `Viren070/docker-compose-template`. Runtime images are also pinned to explicit versions so a later `latest` image cannot silently change an existing installation recipe.
+The installer uses a reviewed, pinned revision of `Viren070/docker-compose-template`. Runtime images are also pinned to explicit versions so a later `latest` image cannot silently change an existing installation recipe. Traefik uses a generated file-provider configuration and has no access to the host Docker socket.
 
 ## Before running
 
@@ -122,6 +122,8 @@ docker compose logs --tail=200
 - Sensitive environment and user files use mode `600`.
 - Input values are validated before they are written to environment or YAML files.
 - The unused TCP/853 listener and Traefik dashboard route are not published.
+- Traefik discovers no containers and has no direct or proxied Docker socket access.
+- The Authelia password is hashed through an interactive container terminal and never appears in process arguments.
 - Compose configuration is validated before `/opt/docker` is created.
 - Container health is checked during startup.
 - CI checks shell syntax, ShellCheck findings, the pinned upstream template, and the rendered Compose model.
