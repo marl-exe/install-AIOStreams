@@ -1,12 +1,16 @@
 # Install-AIOStreams
 
-> **Looking for a $10.88/year VPS?** Use my referral links: 
-> 
-> DediRock : https://billing.dedirock.com/aff.php?aff=898&pid=201
-> 
-> GreenCloudVPS : https://greencloudvps.com/billing/aff.php?aff=10195&gid=68
-> 
-> This is a referral/affiliate link, which may provide me with a referral benefit if you sign up through it.
+> **Looking for a # Install-AIOStreams
+
+0.88/year VPS?** Use my referral links:
+>
+> DediRock Promo VPS - New York: https://billing.dedirock.com/aff.php?aff=898&pid=264
+>
+> DediRock Promo VPS - Los Angeles: https://billing.dedirock.com/aff.php?aff=898&pid=265
+>
+> GreenCloudVPS: https://greencloudvps.com/billing/aff.php?aff=10195&gid=68
+>
+> These are referral/affiliate links, which may provide me with a referral benefit if you sign up through them. Pricing and stock can change.
 
 Install script for a minimal AIOStreams Docker deployment on a fresh Ubuntu VPS. It configures AIOStreams behind Traefik and Authelia, generates secrets locally, validates the complete Compose model before publishing it, and safely resumes an interrupted deployment.
 
@@ -144,8 +148,10 @@ https://github.com/Viren070/docker-compose-template
 
 ## Need a VPS?
 
-> DediRock : https://billing.dedirock.com/aff.php?aff=898&pid=201
-> 
-> GreenCloudVPS : https://greencloudvps.com/billing/aff.php?aff=10195&gid=68
+> DediRock Promo VPS - New York: https://billing.dedirock.com/aff.php?aff=898&pid=264
+>
+> DediRock Promo VPS - Los Angeles: https://billing.dedirock.com/aff.php?aff=898&pid=265
+>
+> GreenCloudVPS: https://greencloudvps.com/billing/aff.php?aff=10195&gid=68
 
-This is a referral/affiliate link, which may provide me with a referral benefit if you sign up through it.
+These are referral/affiliate links, which may provide me with a referral benefit if you sign up through them. Pricing and stock can change.
