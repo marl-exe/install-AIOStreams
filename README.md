@@ -20,7 +20,7 @@ Install script for a minimal AIOStreams Docker deployment on a fresh Ubuntu VPS.
 - A public IPv4 address
 - Root or `sudo` access
 
-The installer uses a reviewed, pinned revision of `Viren070/docker-compose-template`. Runtime images are also pinned to explicit versions so a later `latest` image cannot silently change an existing installation recipe. Traefik uses a generated file-provider configuration and has no access to the host Docker socket.
+The installer uses a reviewed, pinned revision of `Viren070/docker-compose-template`. AIOStreams itself intentionally tracks the upstream `latest` stable container so a fresh installation pulls the newest stable AIOStreams release available at install time. Supporting infrastructure images (Authelia, Redis, PostgreSQL, and Traefik) remain pinned to explicit versions. Traefik uses a generated file-provider configuration and has no access to the host Docker socket.
 
 ## Before running
 
@@ -76,6 +76,18 @@ Passwords must contain at least 16 letters, numbers, dots, underscores, or hyphe
 
 The Authelia credential protects the web configuration page. The separate `AIOSTREAMS_AUTH` credential protects AIOStreams proxy/API functionality; it is **not** a second dashboard login.
 
+## AIOStreams version
+
+Fresh installations use:
+
+```text
+ghcr.io/viren070/aiostreams:latest
+```
+
+This follows AIOStreams' upstream stable `latest` tag, not the `nightly` development tag. As of November 4, 2026, the latest stable GitHub release is `v2.37.0`.
+
+Because `latest` can move when upstream publishes a new stable release, two fresh installations performed at different times may receive different AIOStreams versions. The installer explicitly writes the required `BASE_URL` and current operator permission format (`AIOSTREAMS_AUTH_PERMISSIONS`) for compatibility with current releases.
+
 ## Interrupted installations
 
 The deployment is prepared in a temporary staging directory. Failures before validation remove that staging directory without publishing an incomplete `/opt/docker` tree.
@@ -118,7 +130,7 @@ docker compose logs --tail=200
 
 ## Security and reliability
 
-- The upstream template commit and required runtime image versions are pinned.
+- The upstream template commit and supporting infrastructure image versions are pinned; AIOStreams intentionally follows the upstream stable `latest` image.
 - Authelia and AIOStreams secrets are generated locally with OpenSSL.
 - The Authelia password is stored only as an Argon2id hash.
 - Sensitive environment and user files use mode `600`.
