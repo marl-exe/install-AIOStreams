@@ -12,7 +12,7 @@ readonly TEMPLATE_REPOSITORY='https://github.com/Viren070/docker-compose-templat
 readonly TEMPLATE_REF='59137ec0ae7cb4a9bb386d931cda4f327dbc8625'
 readonly MANAGED_MARKER='.aio-installer-managed'
 readonly COMPLETE_MARKER='.aio-installer-complete'
-readonly AIOSTREAMS_IMAGE='ghcr.io/viren070/aiostreams:v2.33.2'
+readonly AIOSTREAMS_IMAGE='ghcr.io/viren070/aiostreams:latest'
 readonly AUTHELIA_IMAGE='authelia/authelia:4.39.20'
 readonly REDIS_IMAGE='redis:8.10.1-alpine'
 readonly POSTGRES_IMAGE='postgres:17.11-alpine'
@@ -296,6 +296,7 @@ configure_template() {
   set_env_value "$directory/.env" 'LETSENCRYPT_EMAIL' "$LETSENCRYPT_EMAIL"
   set_env_value "$directory/.env" 'DOMAIN' "$DOMAIN"
   set_env_value "$directory/.env" 'AIOSTREAMS_HOSTNAME' "$DOMAIN"
+  set_env_value "$directory/apps/aiostreams/.env" 'BASE_URL' "https://$DOMAIN"
   set_env_value "$directory/.env" 'AUTHELIA_HOSTNAME' "$AUTH_HOST"
   set_env_value "$directory/.env" 'COMPOSE_REMOVE_ORPHANS' 'false'
   set_env_value "$directory/.env" 'AUTHELIA_SESSION_SECRET' "\"$session_secret\""
@@ -303,7 +304,7 @@ configure_template() {
   set_env_value "$directory/.env" 'AUTHELIA_JWT_SECRET' "\"$jwt_secret\""
   set_env_value "$directory/apps/aiostreams/.env" 'SECRET_KEY' "$(openssl rand -hex 32)"
   set_env_value "$directory/apps/aiostreams/.env" 'AIOSTREAMS_AUTH' "$username:$proxy_password"
-  set_env_value "$directory/apps/aiostreams/.env" 'AIOSTREAMS_AUTH_ADMINS' "$username"
+  set_env_value "$directory/apps/aiostreams/.env" 'AIOSTREAMS_AUTH_PERMISSIONS' "$username=admin"
   set_env_value "$directory/apps/aiostreams/.env" 'LOG_SENSITIVE_INFO' 'false'
   replace_exact_line "$directory/apps/aiostreams/compose.yaml" \
     "    image: ghcr.io/viren070/aiostreams:\${AIOSTREAMS_TAG:-latest}" "    image: $AIOSTREAMS_IMAGE"
