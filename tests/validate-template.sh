@@ -35,6 +35,9 @@ grep -Fxq "    image: $REDIS_IMAGE" "$fixture/apps/authelia/compose.yaml"
 grep -Fxq "    image: $POSTGRES_IMAGE" "$fixture/apps/authelia/compose.yaml"
 grep -Fxq "    image: $TRAEFIK_IMAGE" "$fixture/apps/traefik/compose.yaml"
 grep -Fxq 'AIOSTREAMS_AUTH=test-user:abcdefghijklmnop' "$fixture/apps/aiostreams/.env"
+grep -Fxq 'AIOSTREAMS_AUTH_PERMISSIONS=test-user=admin' "$fixture/apps/aiostreams/.env"
+grep -Fxq 'BASE_URL=https://aio.example.com' "$fixture/apps/aiostreams/.env"
+if grep -Eq '^AIOSTREAMS_AUTH_ADMINS=' "$fixture/apps/aiostreams/.env"; then exit 1; fi
 grep -Eq '^SECRET_KEY=[0-9a-f]{64}$' "$fixture/apps/aiostreams/.env"
 if grep -Fq '853:853' "$fixture/apps/traefik/compose.yaml"; then exit 1; fi
 if grep -RFq '/var/run/docker.sock' \
