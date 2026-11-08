@@ -419,8 +419,8 @@ main() {
     log 'Dry run passed. No packages, files, containers, accounts, or credentials were changed.'
     exit 0
   fi
-  read -r -p 'AIOStreams administrator username [marl]: ' aio_username
-  aio_username=${aio_username:-marl}
+  read -r -p 'Choose AIOStreams administrator username: ' aio_username
+  [[ -n $aio_username ]] || die 'administrator username is required'
   [[ $aio_username =~ ^[A-Za-z0-9._-]+$ ]] || die 'administrator username contains unsupported characters'
   read -r -s -p 'Choose administrator password (16+ letters/numbers/._-): ' aio_password
   printf '\n'
