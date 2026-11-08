@@ -25,6 +25,8 @@ SERVICE_GID='1001'
 configure_template "$fixture" 'test-user' 'abcdefghijklmnop'
 
 grep -Fxq "    image: $AIOSTREAMS_IMAGE" "$fixture/apps/aiostreams/compose.yaml"
+grep -Fxq '    healthcheck:' "$fixture/apps/aiostreams/compose.yaml"
+grep -Fxq '      start_period: 600s' "$fixture/apps/aiostreams/compose.yaml"
 grep -Fxq "    image: $TRAEFIK_IMAGE" "$fixture/apps/traefik/compose.yaml"
 grep -Fxq 'AIOSTREAMS_AUTH=test-user:abcdefghijklmnop' "$fixture/apps/aiostreams/.env"
 grep -Fxq 'AIOSTREAMS_AUTH_PERMISSIONS=test-user=admin' "$fixture/apps/aiostreams/.env"
@@ -48,5 +50,8 @@ grep -Fq 'aio.example.com' "$fixture/apps/traefik/dynamic/routes.yml"
 if grep -RFq 'traefik.enable=true' "$fixture/apps/aiostreams" "$fixture/apps/traefik"; then exit 1; fi
 
 docker compose --env-file "$fixture/.env" -f "$fixture/compose.yaml" config --quiet
+# Validate that the rendered Compose service retains the startup grace period.
+docker compose --env-file "$fixture/.env" -f "$fixture/compose.yaml" config --format json | \
+  python3 -c 'import json, sys; v=json.load(sys.stdin)["services"]["aiostreams"]["healthcheck"]["start_period"]; assert v in ("600s", "10m0s"), v'
 services=$(docker compose --env-file "$fixture/.env" -f "$fixture/compose.yaml" config --services | sort)
 [[ $services == $'aiostreams\ntraefik' ]]
