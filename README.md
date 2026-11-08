@@ -10,7 +10,7 @@
 >
 > These are referral/affiliate links, which may provide me with a referral benefit if you sign up through them. Pricing and stock can change.
 
-Install script for a minimal AIOStreams Docker deployment on a fresh Ubuntu VPS. It configures AIOStreams behind Traefik and Authelia, generates secrets locally, validates the complete Compose model before publishing it, and safely resumes an interrupted deployment.
+Install script for a minimal AIOStreams Docker deployment on a fresh Ubuntu VPS. It installs only AIOStreams and Traefik, protects configuration creation with native AIOStreams login, generates secrets locally, validates the Compose model, and safely resumes interrupted deployment.
 
 ## Supported systems
 
@@ -20,18 +20,17 @@ Install script for a minimal AIOStreams Docker deployment on a fresh Ubuntu VPS.
 - A public IPv4 address
 - Root or `sudo` access
 
-The installer uses a reviewed, pinned revision of `Viren070/docker-compose-template`. AIOStreams itself intentionally tracks the upstream `latest` stable container so a fresh installation pulls the newest stable AIOStreams release available at install time. Supporting infrastructure images (Authelia, Redis, PostgreSQL, and Traefik) remain pinned to explicit versions. Traefik uses a generated file-provider configuration and has no access to the host Docker socket.
+The installer uses a reviewed, pinned revision of `Viren070/docker-compose-template`. AIOStreams itself intentionally tracks the upstream `latest` stable container so a fresh installation pulls the newest stable AIOStreams release available at install time. Traefik is pinned to an explicit version. There is no Authelia, Redis or PostgreSQL service. Traefik uses a generated file-provider configuration and has no access to the host Docker socket.
 
 ## Before running
 
 1. Start with a fresh supported Ubuntu VPS.
-2. Create two distinct DNS A records: one for AIOStreams and one for Authelia.
-3. Point both records directly to the VPS public IPv4 address.
-4. If using Cloudflare, set both records to **DNS only** while certificates are issued.
-5. Ensure TCP ports 80 and 443 are free.
-6. Ensure `/opt/docker` does not contain an unrelated deployment.
+2. Create **one** DNS A record for AIOStreams, pointing directly to the VPS public IPv4 address.
+3. If using Cloudflare, keep the A record **DNS only (gray cloud)** for certificate issuance and renewal; this installer uses TLS-ALPN-01, which cannot validate behind orange-cloud.
+4. Allow inbound TCP **443** (required for Let's Encrypt) and TCP **80** (HTTP redirects) in the Oracle/provider firewall and Ubuntu firewall. Confirm that 443 is reachable externally.
+5. Ensure ports 80/443 are unused and `/opt/docker` does not contain an unrelated deployment.
 
-The installer checks that both names resolve to the detected VPS public IPv4 address. If public-IP detection is unavailable, provide it explicitly with `--public-ip`. `--skip-dns-address-check` is available for unusual network arrangements, but incorrect DNS will normally prevent HTTPS certificate issuance.
+The installer checks DNS against the VPS public IPv4. Use `--public-ip` when detection is unavailable; `--skip-dns-address-check` is for unusual network setups and can allow broken HTTPS.
 
 ## Clone
 
@@ -49,7 +48,6 @@ The dry run does not install packages or create files, accounts, credentials, or
 ```bash
 sudo bash Install-AIOStreams.sh \
   --domain aio.example.com \
-  --auth-host auth.aio.example.com \
   --email you@example.com \
   --public-ip 203.0.113.10 \
   --dry-run
@@ -62,19 +60,19 @@ The host must already provide `ss`, `getent`, `awk`, `grep`, `sort`, and `curl` 
 ```bash
 sudo bash Install-AIOStreams.sh \
   --domain aio.example.com \
-  --auth-host auth.aio.example.com \
   --email you@example.com
 ```
 
-The script prompts locally for:
+The installer prompts for:
 
-- An AIOStreams proxy/API username
-- An AIOStreams proxy/API password
-- An Authelia login password
+- One AIOStreams administrator username (default `marl`)
+- One administrator password, entered silently
 
-Passwords must contain at least 16 letters, numbers, dots, underscores, or hyphens. They are entered silently.
+The password must be at least 16 characters and contain only letters, numbers, dots, underscores or hyphens. The installer configures `AIOSTREAMS_AUTH` with these credentials, explicitly grants `admin` using `AIOSTREAMS_AUTH_PERMISSIONS`, and sets `AIOSTREAMS_AUTH_REQUIRED=true`.
 
-The Authelia credential protects the web configuration page. The separate `AIOSTREAMS_AUTH` credential protects AIOStreams proxy/API functionality; it is **not** a second dashboard login.
+**No public registration is provided.** Only an authenticated administrator can create configurations and access the dashboard. One admin can create multiple configurations and save separate named profiles.
+
+Credentials are stored in `/opt/docker/apps/aiostreams/.env` with file mode `600`; keep it private. The `--email` parameter is used only for the Let's Encrypt account, not an AIOStreams login email.
 
 ## AIOStreams version
 
@@ -84,7 +82,7 @@ Fresh installations use:
 ghcr.io/viren070/aiostreams:latest
 ```
 
-This follows AIOStreams' upstream stable `latest` tag, not the `nightly` development tag. As of November 4, 2026, the latest stable GitHub release is `v2.37.0`.
+This follows AIOStreams' upstream stable `latest` tag, not the `nightly` development tag. The image version installed depends on the upstream stable `latest` published at installation time.
 
 Because `latest` can move when upstream publishes a new stable release, two fresh installations performed at different times may receive different AIOStreams versions. The installer explicitly writes the required `BASE_URL` and current operator permission format (`AIOSTREAMS_AUTH_PERMISSIONS`) for compatibility with current releases.
 
@@ -94,7 +92,7 @@ The deployment is prepared in a temporary staging directory. Failures before val
 
 After validation, an installer marker is written before the deployment is started. If an image pull, container startup, or health check then fails, fix the reported cause and run the same installer command again. An installer-managed `/opt/docker` deployment is detected and resumed without regenerating credentials or secrets.
 
-The installer still refuses to alter an existing `/opt/docker` directory that does not contain its management marker.
+The installer refuses to alter an unrelated `/opt/docker` directory and refuses to resume an older Authelia-based deployment. Back up and remove an older installation before reinstalling private-v2.
 
 ## Service account
 
@@ -111,55 +109,49 @@ grep -E '^(PUID|PGID)=' /opt/docker/.env
 
 ## After installation
 
-Open:
+Open `https://aiostreams.marlrivera.com/stremio/configure` (or your configured hostname). Sign in as the administrator and create your configurations. Use **Save as profile** to keep multiple named configurations under one account.
 
-```text
-https://aio.example.com/stremio/configure
-```
+**Privacy:** The hostname is public, but the configuration page requires login, so anonymous visitors cannot create configurations. Stremio endpoints remain available when someone possesses a valid configuration URL, because Stremio needs that access. **Keep installation URLs private**: anyone with a valid URL may be able to use it.
 
-Authenticate through Authelia using the Authelia username and password created during installation.
-
-### Registering an Authelia OTP / authenticator device
-
-By default, this installer uses Authelia's **filesystem notifier**, not SMTP. Verification codes and registration links **are saved on the VPS rather than emailed**, even though an email address is associated with the Authelia account.
-
-1. Sign in to Authelia and choose **Register device → One-Time Password**.
-2. Request the verification code once.
-3. On the VPS, inspect the latest notification:
-
-   ```bash
-   sudo cat /opt/docker/apps/authelia/config/notification.txt
-   ```
-
-4. Follow the latest verification code or link to continue enrollment.
-5. Scan the TOTP QR code with an authenticator app, then enter its generated code to finish registration.
-
-**Keep the contents of `notification.txt` private.** It can contain time-limited authentication codes and links. Do not paste its contents into support requests or public logs.
-
-If code generation fails, check the Authelia logs (`sudo docker logs --since=15m authelia`) for notifier or rate-limit errors. Repeated requests can trigger a temporary retry delay; wait for it to expire before trying again. The notification file may not exist until a notification is generated.
+First startup can take several minutes to prepare databases. The installer allows **600 seconds** for health checks.
 
 Useful diagnostics:
 
 ```bash
 cd /opt/docker
-docker compose config
-docker compose ps -a
-docker compose logs --tail=200
+sudo docker compose config --services
+sudo docker compose ps -a
+sudo docker compose logs --tail=200 aiostreams traefik
 ```
+
+Only `aiostreams` and `traefik` should appear. Traefik obtains certificates via TLS-ALPN-01, so keep the Cloudflare record DNS-only for renewals unless the deployment is converted to DNS-01.
+
+## Uninstall
+
+For new private-v2 deployments, stop the two containers while preserving all data:
+
+```bash
+sudo bash Uninstall-AIOStreams.sh
+```
+
+To stop, create and verify a private backup in `/root/aiostreams-backups/`, and remove `/opt/docker` (requires typing `PURGE`):
+
+```bash
+sudo bash Uninstall-AIOStreams.sh --purge
+```
+
+These commands keep Docker itself, cached images, the `aio` service account, DNS and firewall rules. The uninstaller refuses unexpected Compose services or legacy schema versions. Backups include credentials and TLS private keys; store them securely.
 
 ## Security and reliability
 
-- The upstream template commit and supporting infrastructure image versions are pinned; AIOStreams intentionally follows the upstream stable `latest` image.
-- Authelia and AIOStreams secrets are generated locally with OpenSSL.
-- The Authelia password is stored only as an Argon2id hash.
-- Sensitive environment and user files use mode `600`.
-- Input values are validated before they are written to environment or YAML files.
-- The unused TCP/853 listener and Traefik dashboard route are not published.
-- Traefik discovers no containers and has no direct or proxied Docker socket access.
-- The Authelia password is hashed through an interactive container terminal and never appears in process arguments.
-- Compose configuration is validated before `/opt/docker` is created.
-- Container health is checked during startup.
-- CI checks shell syntax, ShellCheck findings, the pinned upstream template, and the rendered Compose model.
+- Only AIOStreams and Traefik are included in the generated Compose model. Unused upstream template application directories are removed.
+- `AIOSTREAMS_AUTH_REQUIRED=true` protects the configuration page and enables the configuration access-key gate.
+- One explicit `admin` operator account has dashboard and configuration-creation permissions; no additional accounts are configured.
+- Secrets are generated locally. Sensitive `.env` files use mode `600`.
+- Only 80/443 are published; AIOStreams port 3000 remains internal.
+- Traefik has no Docker socket, dashboard or TCP/853 listener.
+- SQLite persists under `/opt/docker/data/aiostreams`; never rotate `SECRET_KEY` casually.
+- CI checks shell syntax, ShellCheck, the pinned upstream template and the two-service Compose model.
 
 Protect SSH, TCP/80, and TCP/443 with the VPS provider firewall, and keep backups outside the VPS.
 
@@ -167,6 +159,7 @@ Protect SSH, TCP/80, and TCP/443 with the VPS provider firewall, and keep backup
 
 ```bash
 sudo bash Install-AIOStreams.sh --help
+sudo bash Uninstall-AIOStreams.sh --help
 ```
 
 ## Upstream template
