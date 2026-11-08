@@ -420,6 +420,13 @@ start_deployment() {
   printf 'template_ref=%s\n' "$TEMPLATE_REF" >"$INSTALL_DIR/$COMPLETE_MARKER"
 }
 
+show_authelia_notification_reminder() {
+  log 'Authelia OTP registration uses a local notification file (no email delivery by default).'
+  log 'After requesting a verification code, read it with:'
+  log '  sudo cat /opt/docker/apps/authelia/config/notification.txt'
+  log 'Keep its codes and links private; repeated requests may be rate-limited.'
+}
+
 resume_installation() {
   grep -Fxq "template_ref=$TEMPLATE_REF" "$INSTALL_DIR/$MANAGED_MARKER" ||
     die "$INSTALL_DIR was prepared by an incompatible installer version"
@@ -427,6 +434,7 @@ resume_installation() {
   install_docker
   start_deployment
   log 'Deployment resumed successfully.'
+  show_authelia_notification_reminder
 }
 
 main() {
@@ -506,6 +514,7 @@ main() {
   log 'Deployment complete.'
   log "Open https://$DOMAIN/stremio/configure and authenticate through Authelia as $aio_username."
   log 'The AIOStreams proxy/API credential is separate and is not a dashboard login.'
+  show_authelia_notification_reminder
   log 'Protect SSH, TCP/80, and TCP/443 with your VPS-provider firewall. Store backups off the VPS.'
 }
 
