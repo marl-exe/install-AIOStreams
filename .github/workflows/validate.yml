@@ -19,8 +19,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y shellcheck
       - name: Check shell syntax
-        run: bash -n Install-AIOStreams.sh tests/validate-template.sh
+        run: bash -n Install-AIOStreams.sh Uninstall-AIOStreams.sh tests/validate-template.sh
       - name: Run ShellCheck
-        run: shellcheck Install-AIOStreams.sh tests/validate-template.sh
+        run: shellcheck Install-AIOStreams.sh Uninstall-AIOStreams.sh tests/validate-template.sh
       - name: Validate pinned template and Compose model
         run: bash tests/validate-template.sh
