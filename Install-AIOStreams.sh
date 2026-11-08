@@ -240,7 +240,7 @@ create_service_account() {
 }
 
 validate_dns() {
-  local hostname address public_ip matched
+  local address public_ip matched
   local -a resolved_addresses
   if [[ $SKIP_DNS_ADDRESS_CHECK == false ]]; then
     public_ip=$PUBLIC_IP
@@ -251,19 +251,16 @@ validate_dns() {
     is_valid_ipv4 "$public_ip" || die "invalid public IPv4 address: $public_ip"
     log "Expected public IPv4 address: $public_ip"
   fi
-  for hostname in "$DOMAIN"; do
-    mapfile -t resolved_addresses < <(getent ahostsv4 "$hostname" | awk '{print $1}' | sort -u)
-    ((${#resolved_addresses[@]} > 0)) || die "$hostname has no IPv4 DNS record"
-    if [[ $SKIP_DNS_ADDRESS_CHECK == false ]]; then
-      matched=false
-      for address in "${resolved_addresses[@]}"; do
-        [[ $address == "$public_ip" ]] && matched=true
-      done
-      [[ $matched == true ]] || die "$hostname does not resolve to the VPS public IPv4 address $public_ip"
-    fi
-  done
+  mapfile -t resolved_addresses < <(getent ahostsv4 "$DOMAIN" | awk '{print $1}' | sort -u)
+  ((${#resolved_addresses[@]} > 0)) || die "$DOMAIN has no IPv4 DNS record"
+  if [[ $SKIP_DNS_ADDRESS_CHECK == false ]]; then
+    matched=false
+    for address in "${resolved_addresses[@]}"; do
+      [[ $address == "$public_ip" ]] && matched=true
+    done
+    [[ $matched == true ]] || die "$DOMAIN does not resolve to the VPS public IPv4 address $public_ip"
+  fi
 }
-
 validate_new_install() {
   [[ -n $DOMAIN ]] || die 'AIOStreams public domain is required'
   [[ -n $LETSENCRYPT_EMAIL ]] || die "Let's Encrypt notification email is required"
