@@ -34,12 +34,15 @@ The installer checks DNS against the VPS public IPv4. Use `--public-ip` when det
 
 ## Clone
 
-This repository is public and does not require GitHub authentication:
+Clone the public repository as your **regular Ubuntu user** (for example `ubuntu`), **not as root**. GitHub authentication and `sudo` are not required for cloning:
 
 ```bash
+cd ~
 git clone https://github.com/marl-exe/install-AIOStreams.git
 cd install-AIOStreams
 ```
+
+Use `sudo` only for running the installer or uninstaller, which need root privileges to manage Docker and `/opt/docker`. To update an existing clone, run `git pull --ff-only` as the same regular user.
 
 ## Dry run
 
@@ -113,7 +116,7 @@ Open `https://aio.example.com/stremio/configure` (or your configured hostname). 
 
 **Privacy:** The hostname is public, but the configuration page requires login, so anonymous visitors cannot create configurations. Stremio endpoints remain available when someone possesses a valid configuration URL, because Stremio needs that access. **Keep installation URLs private**: anyone with a valid URL may be able to use it.
 
-First startup can take several minutes to prepare databases. The installer allows **600 seconds** for health checks.
+First startup can take several minutes to download and prepare datasets. The installer uses **both** a 600-second `docker compose --wait-timeout` and an AIOStreams Docker health-check **`start_period: 600s`** grace period. During this grace period, unsuccessful startup probes do not count toward marking AIOStreams unhealthy. The image's existing health-check command, interval, timeout, and retries are retained. A genuine health-check failure can still occur after the grace period. Once AIOStreams becomes healthy, it is ready to serve requests.
 
 Useful diagnostics:
 
