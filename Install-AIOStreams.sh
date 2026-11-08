@@ -13,13 +13,10 @@ readonly TEMPLATE_REF='59137ec0ae7cb4a9bb386d931cda4f327dbc8625'
 readonly MANAGED_MARKER='.aio-installer-managed'
 readonly COMPLETE_MARKER='.aio-installer-complete'
 readonly AIOSTREAMS_IMAGE='ghcr.io/viren070/aiostreams:latest'
-readonly AUTHELIA_IMAGE='authelia/authelia:4.39.20'
-readonly REDIS_IMAGE='redis:8.10.1-alpine'
-readonly POSTGRES_IMAGE='postgres:17.11-alpine'
+readonly INSTALLER_SCHEMA='private-v2'
 readonly TRAEFIK_IMAGE='traefik:v3.7.13'
 
 DOMAIN=''
-AUTH_HOST=''
 LETSENCRYPT_EMAIL=''
 PUBLIC_IP=''
 DRY_RUN=false
@@ -38,7 +35,6 @@ Usage:
 
 Options:
   --domain NAME       Public AIOStreams hostname (prompted when omitted)
-  --auth-host NAME    Public Authelia hostname (prompted when omitted)
   --email ADDRESS     Let's Encrypt notification email (prompted when omitted)
   --public-ip ADDRESS Expected public IPv4 address (detected when omitted)
   --skip-dns-address-check
@@ -46,8 +42,8 @@ Options:
   --dry-run           Validate the host and inputs without changing the VPS
   --help              Show this help
 
-Use distinct DNS-only A records for --domain and --auth-host. Both records must
-point at the VPS public IPv4 address while Let's Encrypt obtains certificates.
+Set one DNS-only A record for --domain, pointing at the VPS IPv4 address.
+Port 443 must be reachable externally for TLS-ALPN-01 certificate issuance.
 The script can safely resume a deployment that it previously prepared.
 EOF
 }
@@ -255,7 +251,7 @@ validate_dns() {
     is_valid_ipv4 "$public_ip" || die "invalid public IPv4 address: $public_ip"
     log "Expected public IPv4 address: $public_ip"
   fi
-  for hostname in "$DOMAIN" "$AUTH_HOST"; do
+  for hostname in "$DOMAIN"; do
     mapfile -t resolved_addresses < <(getent ahostsv4 "$hostname" | awk '{print $1}' | sort -u)
     ((${#resolved_addresses[@]} > 0)) || die "$hostname has no IPv4 DNS record"
     if [[ $SKIP_DNS_ADDRESS_CHECK == false ]]; then
@@ -270,11 +266,8 @@ validate_dns() {
 
 validate_new_install() {
   [[ -n $DOMAIN ]] || die 'AIOStreams public domain is required'
-  [[ -n $AUTH_HOST ]] || die 'Authelia public domain is required'
   [[ -n $LETSENCRYPT_EMAIL ]] || die "Let's Encrypt notification email is required"
   is_valid_hostname "$DOMAIN" || die '--domain is not a valid fully qualified hostname'
-  is_valid_hostname "$AUTH_HOST" || die '--auth-host is not a valid fully qualified hostname'
-  [[ $DOMAIN != "$AUTH_HOST" ]] || die '--domain and --auth-host must be different hostnames'
   [[ $LETSENCRYPT_EMAIL =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$ ]] || die '--email is not a valid email address'
   [[ -z $PUBLIC_IP ]] || is_valid_ipv4 "$PUBLIC_IP" || die '--public-ip is not a valid IPv4 address'
   if ss -ltnH | awk '{print $4}' | grep -Eq '(:80|:443)$'; then
@@ -284,11 +277,7 @@ validate_new_install() {
 }
 
 configure_template() {
-  local directory=$1 username=$2 proxy_password=$3 authelia_hash=$4
-  local session_secret storage_secret jwt_secret traefik_compose
-  session_secret=$(openssl rand -hex 32)
-  storage_secret=$(openssl rand -hex 32)
-  jwt_secret=$(openssl rand -hex 32)
+  local directory=$1 username=$2 admin_password=$3 traefik_compose app_dir
   set_env_value "$directory/.env" 'TZ' 'Asia/Manila'
   set_env_value "$directory/.env" 'PUID' "$SERVICE_UID"
   set_env_value "$directory/.env" 'PGID' "$SERVICE_GID"
@@ -297,23 +286,14 @@ configure_template() {
   set_env_value "$directory/.env" 'DOMAIN' "$DOMAIN"
   set_env_value "$directory/.env" 'AIOSTREAMS_HOSTNAME' "$DOMAIN"
   set_env_value "$directory/apps/aiostreams/.env" 'BASE_URL' "https://$DOMAIN"
-  set_env_value "$directory/.env" 'AUTHELIA_HOSTNAME' "$AUTH_HOST"
   set_env_value "$directory/.env" 'COMPOSE_REMOVE_ORPHANS' 'false'
-  set_env_value "$directory/.env" 'AUTHELIA_SESSION_SECRET' "\"$session_secret\""
-  set_env_value "$directory/.env" 'AUTHELIA_STORAGE_ENCRYPTION_KEY' "\"$storage_secret\""
-  set_env_value "$directory/.env" 'AUTHELIA_JWT_SECRET' "\"$jwt_secret\""
   set_env_value "$directory/apps/aiostreams/.env" 'SECRET_KEY' "$(openssl rand -hex 32)"
-  set_env_value "$directory/apps/aiostreams/.env" 'AIOSTREAMS_AUTH' "$username:$proxy_password"
+  set_env_value "$directory/apps/aiostreams/.env" 'AIOSTREAMS_AUTH' "$username:$admin_password"
+  set_env_value "$directory/apps/aiostreams/.env" 'AIOSTREAMS_AUTH_REQUIRED' 'true'
   set_env_value "$directory/apps/aiostreams/.env" 'AIOSTREAMS_AUTH_PERMISSIONS' "$username=admin"
   set_env_value "$directory/apps/aiostreams/.env" 'LOG_SENSITIVE_INFO' 'false'
   replace_exact_line "$directory/apps/aiostreams/compose.yaml" \
     "    image: ghcr.io/viren070/aiostreams:\${AIOSTREAMS_TAG:-latest}" "    image: $AIOSTREAMS_IMAGE"
-  replace_exact_line "$directory/apps/authelia/compose.yaml" \
-    "    image: 'authelia/authelia'" "    image: '$AUTHELIA_IMAGE'"
-  replace_exact_line "$directory/apps/authelia/compose.yaml" \
-    '    image: redis:latest' "    image: $REDIS_IMAGE"
-  replace_exact_line "$directory/apps/authelia/compose.yaml" \
-    '    image: postgres:17-alpine' "    image: $POSTGRES_IMAGE"
   replace_exact_line "$directory/apps/traefik/compose.yaml" \
     '    image: traefik:v3' "    image: $TRAEFIK_IMAGE"
 
@@ -336,7 +316,7 @@ configure_template() {
     '      - "${DOCKER_DATA_DIR}/traefik:/data"' \
     '      - "${DOCKER_APP_DIR}/traefik/dynamic:/etc/traefik/dynamic:ro"'
   remove_exact_block "$traefik_compose" '    labels:' '    healthcheck:'
-  remove_exact_block "$directory/apps/authelia/compose.yaml" '    labels:' '    volumes:'
+  remove_exact_block "$traefik_compose" '    depends_on:' '    profiles:'
   remove_exact_block "$directory/apps/aiostreams/compose.yaml" '    labels:' '    volumes:'
 
   install -d -m 0750 "$directory/apps/traefik/dynamic"
@@ -348,104 +328,61 @@ http:
       rule: 'Host(\`$DOMAIN\`)'
       entryPoints:
         - websecure
-      middlewares:
-        - authelia
       service: aiostreams
       tls:
         certResolver: letsencrypt
-    authelia:
-      rule: 'Host(\`$AUTH_HOST\`)'
-      entryPoints:
-        - websecure
-      service: authelia
-      tls:
-        certResolver: letsencrypt
-  middlewares:
-    authelia:
-      forwardAuth:
-        address: 'http://authelia:9091/api/authz/forward-auth'
-        trustForwardHeader: true
-        authResponseHeaders:
-          - Remote-User
-          - Remote-Groups
-          - Remote-Email
-          - Remote-Name
   services:
     aiostreams:
       loadBalancer:
         servers:
           - url: 'http://aiostreams:3000'
-    authelia:
-      loadBalancer:
-        servers:
-          - url: 'http://authelia:9091'
 EOF
   chmod 0644 "$directory/apps/traefik/dynamic/routes.yml"
   install -d -m 0750 "$directory/data/aiostreams"
-  cat >"$directory/apps/authelia/config/users.yml" <<EOF
----
-users:
-  $username:
-    disabled: false
-    displayname: "$username"
-    password: "$authelia_hash"
-    email: "$LETSENCRYPT_EMAIL"
-    groups:
-      - admins
-...
+  # Restrict the Compose model to only the intended two services.
+  cat >"$directory/compose.yaml" <<'EOF'
+include:
+  - apps/aiostreams/compose.yaml
+  - apps/traefik/compose.yaml
 EOF
-  chmod 600 "$directory/.env" "$directory/apps/aiostreams/.env" \
-    "$directory/apps/authelia/config/users.yml"
-}
-
-generate_authelia_hash() {
-  local password=$1 digest
-  digest=$(
-    printf '%s\n' "$password" |
-      script --quiet --return --command \
-        "docker run --rm --interactive --tty $AUTHELIA_IMAGE authelia crypto hash generate argon2 --no-confirm" \
-        /dev/null |
-      tr -d '\r' |
-      awk '/^Digest: / { digest = $2 } END { if (digest) print digest }'
-  )
-  [[ $digest == "\$argon2id\$"* ]] || die 'Authelia password hash generation failed'
-  printf '%s\n' "$digest"
+  chmod 600 "$directory/.env" "$directory/apps/aiostreams/.env"
+  # Remove unneeded application directories from the cloned upstream template.
+  for app_dir in "$directory"/apps/*; do
+    case "${app_dir##*/}" in
+      aiostreams|traefik) ;;
+      *) rm -rf -- "$app_dir" ;;
+    esac
+  done
+  rm -rf -- "$directory/.git"
 }
 
 start_deployment() {
   cd "$INSTALL_DIR"
   docker compose config --quiet
   docker compose pull
-  docker compose up -d --wait --wait-timeout 180
-  printf 'template_ref=%s\n' "$TEMPLATE_REF" >"$INSTALL_DIR/$COMPLETE_MARKER"
-}
-
-show_authelia_notification_reminder() {
-  log 'Authelia OTP registration uses a local notification file (no email delivery by default).'
-  log 'After requesting a verification code, read it with:'
-  log '  sudo cat /opt/docker/apps/authelia/config/notification.txt'
-  log 'Keep its codes and links private; repeated requests may be rate-limited.'
+  docker compose up -d --wait --wait-timeout 600
+  printf 'template_ref=%s\ninstaller_schema=%s\n' "$TEMPLATE_REF" "$INSTALLER_SCHEMA" >"$INSTALL_DIR/$COMPLETE_MARKER"
 }
 
 resume_installation() {
   grep -Fxq "template_ref=$TEMPLATE_REF" "$INSTALL_DIR/$MANAGED_MARKER" ||
     die "$INSTALL_DIR was prepared by an incompatible installer version"
+  grep -Fxq "installer_schema=$INSTALLER_SCHEMA" "$INSTALL_DIR/$MANAGED_MARKER" ||
+    die 'old Authelia-based installation detected; remove it before reinstalling'
   log 'Resuming the installer-managed deployment.'
   install_docker
   start_deployment
   log 'Deployment resumed successfully.'
-  show_authelia_notification_reminder
 }
 
 main() {
-  local aio_username aio_proxy_password authelia_password authelia_hash
+  local aio_username aio_password
   while (($#)); do
     case "$1" in
-      --domain|--auth-host|--email|--public-ip)
+      --domain|--email|--public-ip)
         (($# >= 2)) || die "missing value for $1"
         case "$1" in
           --domain) DOMAIN=$2 ;;
-          --auth-host) AUTH_HOST=$2 ;;
           --email) LETSENCRYPT_EMAIL=$2 ;;
           --public-ip) PUBLIC_IP=$2 ;;
         esac
@@ -473,48 +410,42 @@ main() {
     exit 0
   fi
   if [[ -z $DOMAIN ]]; then read -r -p 'AIOStreams public domain: ' DOMAIN; fi
-  if [[ -z $AUTH_HOST ]]; then read -r -p 'Authelia public domain: ' AUTH_HOST; fi
   if [[ -z $LETSENCRYPT_EMAIL ]]; then read -r -p "Let's Encrypt notification email: " LETSENCRYPT_EMAIL; fi
   if [[ $DRY_RUN == true ]]; then
     require_commands ss getent awk grep sort curl
   else
     install_docker
-    require_commands ss getent awk grep sort curl openssl git docker script tr
+    require_commands ss getent awk grep sort curl openssl git docker
   fi
   validate_new_install
   if [[ $DRY_RUN == true ]]; then
     log 'Dry run passed. No packages, files, containers, accounts, or credentials were changed.'
     exit 0
   fi
-  read -r -p 'AIOStreams proxy/API username [marl]: ' aio_username
+  read -r -p 'AIOStreams administrator username [marl]: ' aio_username
   aio_username=${aio_username:-marl}
-  [[ $aio_username =~ ^[A-Za-z0-9._-]+$ ]] || die 'proxy/API username contains unsupported characters'
-  read -r -s -p 'Choose AIOStreams proxy/API password (16+ letters/numbers/._-): ' aio_proxy_password
+  [[ $aio_username =~ ^[A-Za-z0-9._-]+$ ]] || die 'administrator username contains unsupported characters'
+  read -r -s -p 'Choose administrator password (16+ letters/numbers/._-): ' aio_password
   printf '\n'
-  [[ $aio_proxy_password =~ ^[A-Za-z0-9._-]{16,}$ ]] || die 'proxy/API password is invalid'
-  read -r -s -p 'Choose Authelia login password (16+ letters/numbers/._-): ' authelia_password
-  printf '\n'
-  [[ $authelia_password =~ ^[A-Za-z0-9._-]{16,}$ ]] || die 'Authelia password is invalid'
+  [[ $aio_password =~ ^[A-Za-z0-9._-]{16,}$ ]] || die 'administrator password is invalid'
   create_service_account
-  log "Generating an Authelia password hash with $AUTHELIA_IMAGE."
-  docker pull "$AUTHELIA_IMAGE" >/dev/null
-  authelia_hash=$(generate_authelia_hash "$authelia_password")
   STAGING_DIR=$(mktemp -d /opt/aio-install.XXXXXX)
   log "Cloning reviewed template revision $TEMPLATE_REF into a staging directory."
   git clone --no-checkout "$TEMPLATE_REPOSITORY" "$STAGING_DIR"
   git -C "$STAGING_DIR" checkout --detach "$TEMPLATE_REF"
-  configure_template "$STAGING_DIR" "$aio_username" "$aio_proxy_password" "$authelia_hash"
+  configure_template "$STAGING_DIR" "$aio_username" "$aio_password"
   docker compose --env-file "$STAGING_DIR/.env" -f "$STAGING_DIR/compose.yaml" config --quiet
-  chown -R "$SERVICE_USER:$SERVICE_USER" "$STAGING_DIR/apps/authelia/config" "$STAGING_DIR/data/aiostreams"
-  printf 'template_ref=%s\n' "$TEMPLATE_REF" >"$STAGING_DIR/$MANAGED_MARKER"
+  chown -R "$SERVICE_USER:$SERVICE_USER" "$STAGING_DIR/data/aiostreams"
+  printf 'template_ref=%s\ninstaller_schema=%s\n' "$TEMPLATE_REF" "$INSTALLER_SCHEMA" >"$STAGING_DIR/$MANAGED_MARKER"
   mv -- "$STAGING_DIR" "$INSTALL_DIR"
   STAGING_DIR=''
-  unset aio_proxy_password authelia_password authelia_hash
+  unset aio_password
   start_deployment
   log 'Deployment complete.'
-  log "Open https://$DOMAIN/stremio/configure and authenticate through Authelia as $aio_username."
-  log 'The AIOStreams proxy/API credential is separate and is not a dashboard login.'
-  show_authelia_notification_reminder
+  log "Open https://$DOMAIN/stremio/configure and sign in as $aio_username."
+  log 'Login is required for configuration creation; there is no public registration.'
+  log 'This administrator can save multiple configuration profiles.'
+  log 'Keep addon installation URLs private; valid URLs can be used by Stremio.'
   log 'Protect SSH, TCP/80, and TCP/443 with your VPS-provider firewall. Store backups off the VPS.'
 }
 
