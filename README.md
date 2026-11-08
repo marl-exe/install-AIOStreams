@@ -119,6 +119,25 @@ https://aio.example.com/stremio/configure
 
 Authenticate through Authelia using the Authelia username and password created during installation.
 
+### Registering an Authelia OTP / authenticator device
+
+By default, this installer uses Authelia's **filesystem notifier**, not SMTP. Verification codes and registration links **are saved on the VPS rather than emailed**, even though an email address is associated with the Authelia account.
+
+1. Sign in to Authelia and choose **Register device → One-Time Password**.
+2. Request the verification code once.
+3. On the VPS, inspect the latest notification:
+
+   ```bash
+   sudo cat /opt/docker/apps/authelia/config/notification.txt
+   ```
+
+4. Follow the latest verification code or link to continue enrollment.
+5. Scan the TOTP QR code with an authenticator app, then enter its generated code to finish registration.
+
+**Keep the contents of `notification.txt` private.** It can contain time-limited authentication codes and links. Do not paste its contents into support requests or public logs.
+
+If code generation fails, check the Authelia logs (`sudo docker logs --since=15m authelia`) for notifier or rate-limit errors. Repeated requests can trigger a temporary retry delay; wait for it to expire before trying again. The notification file may not exist until a notification is generated.
+
 Useful diagnostics:
 
 ```bash
