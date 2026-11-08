@@ -291,6 +291,172 @@ configure_template() {
   set_env_value "$directory/apps/aiostreams/.env" 'LOG_SENSITIVE_INFO' 'false'
   replace_exact_line "$directory/apps/aiostreams/compose.yaml" \
     "    image: ghcr.io/viren070/aiostreams:\${AIOSTREAMS_TAG:-latest}" "    image: $AIOSTREAMS_IMAGE"
+  # Keep the image's health-check command, interval, timeout, and retries.
+  # Initial dataset downloads can take several minutes; don't mark it unhealthy early.
+  insert_after_exact_line "$directory/apps/aiostreams/compose.yaml" \
+    '    restart: unless-stopped' 
+  replace_exact_line "$directory/apps/traefik/compose.yaml" \
+    '    image: traefik:v3' "    image: $TRAEFIK_IMAGE"
+
+  traefik_compose="$directory/apps/traefik/compose.yaml"
+  remove_exact_line "$traefik_compose" '      - 853:853'
+  remove_exact_line "$traefik_compose" '      - "--entryPoints.dot.address=:853"'
+  remove_exact_line "$traefik_compose" "      - '--api=true'"
+  remove_exact_line "$traefik_compose" "      - '--api.dashboard=true'"
+  remove_exact_line "$traefik_compose" "      - '--api.insecure=false'"
+  remove_exact_line "$traefik_compose" '      - "--providers.docker=true"'
+  remove_exact_line "$traefik_compose" '      - "--providers.docker.exposedbydefault=false"'
+  # shellcheck disable=SC2016 # Match the literal Compose interpolation in the pinned template.
+  remove_exact_line "$traefik_compose" '      - "--providers.docker.network=${DOCKER_NETWORK?}"'
+  remove_exact_line "$traefik_compose" '      - "/var/run/docker.sock:/var/run/docker.sock"'
+  insert_after_exact_line "$traefik_compose" \
+    "      - '--global.checkNewVersion=false'" \
+    $'      - "--providers.file.directory=/etc/traefik/dynamic"\n      - "--providers.file.watch=true"'
+  # shellcheck disable=SC2016 # Preserve literal Compose variables in the generated file.
+  insert_after_exact_line "$traefik_compose" \
+    '      - "${DOCKER_DATA_DIR}/traefik:/data"' \
+    '      - "${DOCKER_APP_DIR}/traefik/dynamic:/etc/traefik/dynamic:ro"'
+  remove_exact_block "$traefik_compose" '    labels:' '    healthcheck:'
+  remove_exact_block "$traefik_compose" '    depends_on:' '    profiles:'
+  remove_exact_block "$directory/apps/aiostreams/compose.yaml" '    labels:' '    volumes:'
+
+  install -d -m 0750 "$directory/apps/traefik/dynamic"
+  cat >"$directory/apps/traefik/dynamic/routes.yml" <<EOF
+---
+http:
+  routers:
+    aiostreams:
+      rule: 'Host(\`$DOMAIN\`)'
+      entryPoints:
+        - websecure
+      service: aiostreams
+      tls:
+        certResolver: letsencrypt
+  services:
+    aiostreams:
+      loadBalancer:
+        servers:
+          - url: 'http://aiostreams:3000'
+EOF
+  chmod 0644 "$directory/apps/traefik/dynamic/routes.yml"
+  install -d -m 0750 "$directory/data/aiostreams"
+  # Restrict the Compose model to only the intended two services.
+  cat >"$directory/compose.yaml" <<'EOF'
+include:
+  - apps/aiostreams/compose.yaml
+  - apps/traefik/compose.yaml
+EOF
+  chmod 600 "$directory/.env" "$directory/apps/aiostreams/.env"
+  # Remove unneeded application directories from the cloned upstream template.
+  for app_dir in "$directory"/apps/*; do
+    case "${app_dir##*/}" in
+      aiostreams|traefik) ;;
+      *) rm -rf -- "$app_dir" ;;
+    esac
+  done
+  rm -rf -- "$directory/.git"
+}
+
+start_deployment() {
+  cd "$INSTALL_DIR"
+  docker compose config --quiet
+  docker compose pull
+  docker compose up -d --wait --wait-timeout 600
+  printf 'template_ref=%s\ninstaller_schema=%s\n' "$TEMPLATE_REF" "$INSTALLER_SCHEMA" >"$INSTALL_DIR/$COMPLETE_MARKER"
+}
+
+resume_installation() {
+  grep -Fxq "template_ref=$TEMPLATE_REF" "$INSTALL_DIR/$MANAGED_MARKER" ||
+    die "$INSTALL_DIR was prepared by an incompatible installer version"
+  grep -Fxq "installer_schema=$INSTALLER_SCHEMA" "$INSTALL_DIR/$MANAGED_MARKER" ||
+    die 'old Authelia-based installation detected; remove it before reinstalling'
+  log 'Resuming the installer-managed deployment.'
+  install_docker
+  start_deployment
+  log 'Deployment resumed successfully.'
+}
+
+main() {
+  local aio_username aio_password
+  while (($#)); do
+    case "$1" in
+      --domain|--email|--public-ip)
+        (($# >= 2)) || die "missing value for $1"
+        case "$1" in
+          --domain) DOMAIN=$2 ;;
+          --email) LETSENCRYPT_EMAIL=$2 ;;
+          --public-ip) PUBLIC_IP=$2 ;;
+        esac
+        shift 2
+        ;;
+      --skip-dns-address-check) SKIP_DNS_ADDRESS_CHECK=true; shift ;;
+      --dry-run) DRY_RUN=true; shift ;;
+      --help|-h) usage; exit 0 ;;
+      *) die "unknown option: $1" ;;
+    esac
+  done
+  [[ $EUID -eq 0 ]] || die 'run this script as root (for example: sudo bash ...)'
+  # shellcheck source=/dev/null
+  source /etc/os-release
+  [[ ${ID:-} == 'ubuntu' ]] || die 'only Ubuntu is supported'
+  case ${VERSION_CODENAME:-} in
+    resolute|noble|jammy) ;;
+    *) die "Ubuntu ${VERSION_CODENAME:-unknown} is not supported" ;;
+  esac
+  if [[ -e $INSTALL_DIR ]]; then
+    [[ -d $INSTALL_DIR && -f $INSTALL_DIR/$MANAGED_MARKER ]] ||
+      die "$INSTALL_DIR already exists and is not managed by this installer"
+    [[ $DRY_RUN == false ]] || die 'dry-run is not available while resuming an installation'
+    resume_installation
+    exit 0
+  fi
+  if [[ -z $DOMAIN ]]; then read -r -p 'AIOStreams public domain: ' DOMAIN; fi
+  if [[ -z $LETSENCRYPT_EMAIL ]]; then read -r -p "Let's Encrypt notification email: " LETSENCRYPT_EMAIL; fi
+  if [[ $DRY_RUN == true ]]; then
+    require_commands ss getent awk grep sort curl
+  else
+    install_docker
+    require_commands ss getent awk grep sort curl openssl git docker
+  fi
+  validate_new_install
+  if [[ $DRY_RUN == true ]]; then
+    log 'Dry run passed. No packages, files, containers, accounts, or credentials were changed.'
+    exit 0
+  fi
+  read -r -p 'Choose AIOStreams administrator username: ' aio_username
+  [[ -n $aio_username ]] || die 'administrator username is required'
+  [[ $aio_username =~ ^[A-Za-z0-9._-]+$ ]] || die 'administrator username contains unsupported characters'
+  read -r -s -p 'Choose administrator password (16+ letters/numbers/._-): ' aio_password
+  printf '\n'
+  [[ $aio_password =~ ^[A-Za-z0-9._-]{16,}$ ]] || die 'administrator password is invalid'
+  create_service_account
+  STAGING_DIR=$(mktemp -d /opt/aio-install.XXXXXX)
+  log "Cloning reviewed template revision $TEMPLATE_REF into a staging directory."
+  git clone --no-checkout "$TEMPLATE_REPOSITORY" "$STAGING_DIR"
+  git -C "$STAGING_DIR" checkout --detach "$TEMPLATE_REF"
+  configure_template "$STAGING_DIR" "$aio_username" "$aio_password"
+  docker compose --env-file "$STAGING_DIR/.env" -f "$STAGING_DIR/compose.yaml" config --quiet
+  chown -R "$SERVICE_USER:$SERVICE_USER" "$STAGING_DIR/data/aiostreams"
+  printf 'template_ref=%s\ninstaller_schema=%s\n' "$TEMPLATE_REF" "$INSTALLER_SCHEMA" >"$STAGING_DIR/$MANAGED_MARKER"
+  mv -- "$STAGING_DIR" "$INSTALL_DIR"
+  STAGING_DIR=''
+  unset aio_password
+  start_deployment
+  log 'Deployment complete.'
+  log "Open https://$DOMAIN/stremio/configure and sign in as $aio_username."
+  log 'Login is required for configuration creation; there is no public registration.'
+  log 'This administrator can save multiple configuration profiles.'
+  log 'Keep addon installation URLs private; valid URLs can be used by Stremio.'
+  log 'Protect SSH, TCP/80, and TCP/443 with your VPS-provider firewall. Store backups off the VPS.'
+}
+
+trap cleanup_staging EXIT
+trap 'on_error "$LINENO" "$?"' ERR
+
+if [[ ${BASH_SOURCE[0]} == "$0" ]]; then
+  main "$@"
+fi
+    healthcheck:\n      start_period: 600s'
   replace_exact_line "$directory/apps/traefik/compose.yaml" \
     '    image: traefik:v3' "    image: $TRAEFIK_IMAGE"
 
