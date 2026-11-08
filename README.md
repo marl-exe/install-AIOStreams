@@ -65,7 +65,7 @@ sudo bash Install-AIOStreams.sh \
 
 The installer prompts for:
 
-- One AIOStreams administrator username (default `marl`)
+- One administrator username of your choice (required; e.g. `user`, no preset default)
 - One administrator password, entered silently
 
 The password must be at least 16 characters and contain only letters, numbers, dots, underscores or hyphens. The installer configures `AIOSTREAMS_AUTH` with these credentials, explicitly grants `admin` using `AIOSTREAMS_AUTH_PERMISSIONS`, and sets `AIOSTREAMS_AUTH_REQUIRED=true`.
@@ -109,7 +109,7 @@ grep -E '^(PUID|PGID)=' /opt/docker/.env
 
 ## After installation
 
-Open `https://aiostreams.marlrivera.com/stremio/configure` (or your configured hostname). Sign in as the administrator and create your configurations. Use **Save as profile** to keep multiple named configurations under one account.
+Open `https://aio.example.com/stremio/configure` (or your configured hostname). Sign in as the administrator and create your configurations. Use **Save as profile** to keep multiple named configurations under one account.
 
 **Privacy:** The hostname is public, but the configuration page requires login, so anonymous visitors cannot create configurations. Stremio endpoints remain available when someone possesses a valid configuration URL, because Stremio needs that access. **Keep installation URLs private**: anyone with a valid URL may be able to use it.
 
